@@ -1,0 +1,13 @@
+venv/
+(lawbot)/
+.venv/
+chroma_db/
+*.gguf
+__pycache__/
+*.pyc
+.git/
+.gitignore
+Dockerfile
+.dockerignore
+
+environment.yml

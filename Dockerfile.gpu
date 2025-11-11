@@ -1,0 +1,24 @@
+# Sử dụng base image CUDA 12.1 của NVIDIA (dành cho Linux)
+FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    python3.11 \
+    python3-pip \
+    cmake \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN ln -s /usr/bin/python3.11 /usr/bin/python
+
+COPY requirements.txt .
+
+ENV CMAKE_ARGS="-DLLAMA_CUBLAS=on"
+ENV FORCE_CMAKE=1
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+CMD ["python", "app.py"]
