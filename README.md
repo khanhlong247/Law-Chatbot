@@ -1,32 +1,33 @@
-# Chatbot Luật (LawBot RAG)
+# Law Chatbot (LawBot RAG)
 
-Đây là dự án chatbot RAG hỏi đáp văn bản pháp luật, chạy 100% local (offline) bằng `PhoGPT-7B5-Instruct` và `ChromaDB`.
+This is a RAG chatbot project for legal documents, running 100% locally (offline) using `PhoGPT-7B5-Instruct` and `ChromaDB`.
 
-## 1. Yêu cầu hệ thống
+## 1. System requirements
 
-* [Docker Desktop](https://www.docker.com/products/docker-desktop/) đã được cài đặt.
-* (Tùy chọn cho GPU) GPU NVIDIA (VRAM > 6GB) và driver CUDA mới nhất.
+* [Docker Desktop](https://www.docker.com/products/docker-desktop/) is installed.
 
-## 2. Thiết lập (Làm 1 lần)
+* (GPU optional) NVIDIA GPU (VRAM > 6GB) and latest CUDA driver.
 
-### 1: Tải Model LLM
+## 2. Setup (Do it once)
 
-Dự án này sử dụng phiên bản GGUF 4-bit của PhoGPT.
+### 1: Download Model LLM
 
-1.  Tải file model (nặng ~4.37 GB) từ link sau:
-    [phogpt-7b5-instruct.q4_K_m.gguf](https://huggingface.co/nguyenviet/PhoGPT-7B5-Instruct-GGUF/blob/main/phogpt-7b5-instruct.q4_K_m.gguf)
-2.  Đặt file `.gguf` bạn vừa tải vào thư mục gốc của dự án này (ngang hàng với file `app.py`).
+This project uses the 4-bit GGUF version of PhoGPT.
 
-### 2: Tạo Volume cho Database
+1. Download the model file (weighing ~4.37 GB) from the following link:
+[phogpt-7b5-instruct.q4_K_m.gguf](https://huggingface.co/nguyenviet/PhoGPT-7B5-Instruct-GGUF/blob/main/phogpt-7b5-instruct.q4_K_m.gguf)
+2. Place the `.gguf` file you just downloaded into the root directory of this project (equal to the `app.py` file).
 
-Chạy lệnh này 1 lần duy nhất để tạo nơi lưu trữ vĩnh viễn cho vector database:
+### 2: Create a Volume for the Database
+
+Run this command once only to create a permanent storage for the database vector:
 ```powershell
 docker volume create lawbot-db
 ```
 
-## 3. Hướng dẫn chạy (CPU)
+## 3. Running instructions (CPU)
 
-Đây là phương án mặc định, chạy 100% trên CPU (chậm, 10-15 phút/câu trả lời).
+This is the default option, running 100% on CPU (slow, 10-15 minutes/answer).
 
 ### 3.1: Build Image
 
@@ -34,102 +35,101 @@ docker volume create lawbot-db
 docker build -t lawbot-cpu .
 ```
 
-### 3.2: Nạp dữ liệu (Ingest)
+### 3.2: Ingest Data
 
-Chạy `ingest.py` bên trong Docker để đọc thư mục `data/` và tạo database vào volume:
+Run `ingest.py` inside Docker to read the `data/` directory and create the database into the volume:
 ```powershell
-# Dùng (^) cho PowerShell, dùng (\) cho Bash/Linux
+# Use (^) for PowerShell, use (\) for Bash/Linux
 docker run --rm -it ^
-    -v ./data:/app/data:ro ^
-    -v lawbot-db:/app/chroma_db ^
-    lawbot-cpu python ingest.py
+-v ./data:/app/data:ro ^
+-v lawbot-db:/app/chroma_db ^
+lawbot-cpu python ingest.py
 ```
 
-### 3.3: Chạy Chatbot
+### 3.3: Run Chatbot
 
 ```powershell
 docker run --rm -it ^
-    -v ./phogpt-7b5-instruct.q4_K_m.gguf:/app/phogpt-7b5-instruct.q4_K_m.gguf:ro ^
-    -v lawbot-db:/app/chroma_db ^
-    lawbot-cpu
+-v ./phogpt-7b5-instruct.q4_K_m.gguf:/app/phogpt-7b5-instruct.q4_K_m.gguf:ro ^
+-v lawbot-db:/app/chroma_db ^
+lawbot-cpu
 ```
 
 ---
 
-## 4. (Tùy chọn) Hướng dẫn chạy (GPU)
+## 4. (Optional) Running Instructions (GPU)
 
-Phương án này yêu cầu GPU NVIDIA và nhanh hơn (vài giây/câu trả lời).
+This option requires an NVIDIA GPU and is faster (a few seconds/answer).
 
-### 4.1: Sửa file `app.py` và file `requirements.txt`
+### 4.1: Edit `app.py` and `requirements.txt` files
 
-Mở file `app.py`, tìm đến khối `LlamaCpp` (khoảng dòng 30) và sửa `n_gpu_layers=0` thành `n_gpu_layers=-1`.
+Open the `app.py` file, find the `LlamaCpp` block (around line 30) and edit `n_gpu_layers=0` to `n_gpu_layers=-1`.
 
-Mở file `requirements.py`, thêm thư viện `llama-cpp-python`
+Open the `requirements.py` file, add the `llama-cpp-python` library
 
-### 4.2: Build Image GPU
+### 4.2: Build GPU Image
 
-Sử dụng file `Dockerfile.gpu` để build:
+Use the `Dockerfile.gpu` file to build:
 ```powershell
 docker build -t lawbot-gpu -f Dockerfile.gpu .
+
 ```
 
-### 4.3: Chạy Ingest (GPU)
+### 4.3: Run Ingest (GPU)
 
-Giống như ingest CPU, nhưng thêm cờ `--gpus all`:
+Same as CPU ingest, but add the `--gpus all` flag:
 ```powershell
 docker run --rm -it --gpus all ^
-    -v ./data:/app/data:ro ^
-    -v lawbot-db:/app/chroma_db ^
-    lawbot-gpu python ingest.py
+-v ./data:/app/data:ro ^
+-v lawbot-db:/app/chroma_db ^
+lawbot-gpu python ingest.py
 ```
 
-### 4.4: Chạy Chatbot (GPU)
+### 4.4: Run Chatbot (GPU)
 
-Giống như chạy CPU, nhưng thêm cờ `--gpus all` và dùng image `lawbot-gpu`:
+Same as CPU ingest, but add the `--gpus all` flag and use the `lawbot-gpu` image:
 ```powershell
 docker run --rm -it --gpus all ^
-    -v ./phogpt-7b5-instruct.q4_K_m.gguf:/app/phogpt-7b5-instruct.q4_K_m.gguf:ro ^
-    -v lawbot-db:/app/chroma_db ^
-    lawbot-gpu
+-v ./phogpt-7b5-instruct.q4_K_m.gguf:/app/phogpt-7b5-instruct.q4_K_m.gguf:ro ^
+-v lawbot-db:/app/chroma_db ^
+lawbot-gpu
 ```
 
-## 5. Hướng dẫn chạy local (CPU)
+## 5. Instructions for running local (CPU)
 
-### `cd` vào folder dự án
+### `cd` into the project folder
 
-### 5.1: Cài đặt môi trường conda
+### 5.1: Install the conda environment
 
 ```
 conda create -n lawbot python=3.11
 ```
 
-### 5.2: Cài đặt thư viện
+### 5.2: Install libraries
 
-- Khởi động môi trường conda:
+- Start the conda environment:
 
 ```
 conda activate lawbot
 ```
-
-- Cài thư viện `llama-cpp-python`:
+- Install the library `llama-cpp-python`:
 
 ```
 conda install -c conda-forge llama-cpp-python
 ```
-
-- Cài các thư viện còn lại:
+- Install the remaining libraries:
 
 ```
 pip install -r requirements.txt
 ```
 
-### 5.3: Tải file `.gguf` của model qwen1_5-1.8b-chat-q8_0
+### 5.3: Download the `.gguf` file of the qwen1_5-1.8b-chat-q8_0 model
 
 ```
 pip install huggingface_hub
 ```
 
-Sau khi cài xong thư viện huggingface_hub, chạy câu lệnh:
+After installing the huggingface_hub library, run the command:
 
 ```
 huggingface-cli download Qwen/Qwen1.5-1.8B-Chat-GGUF qwen1_5-1_8b-chat-q8_0.gguf --local-dir . --local-dir-use-symlinks False
@@ -141,7 +141,7 @@ huggingface-cli download Qwen/Qwen1.5-1.8B-Chat-GGUF qwen1_5-1_8b-chat-q8_0.gguf
 python ingest.py
 ```
 
-### 5.5: Chạy chatbot
+### 5.5: Running the chatbot
 
 ```
 python app.py
