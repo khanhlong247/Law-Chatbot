@@ -6,14 +6,14 @@ from langchain_core.prompts import ChatPromptTemplate
 
 os.environ["ANONYMIZED_TELEMETRY"] = "False"
 
-MODEL_PATH = "./PhoGPT-7B5-Instruct-q4_k_m.gguf" 
+MODEL_PATH = "./qwen1_5-1_8b-chat-q8_0.gguf" 
 
 if not os.path.exists(MODEL_PATH):
     print(f"Không tìm thấy model tại: {MODEL_PATH}")
-    print("Vui lòng tải file GGUF của PhoGPT-Instruct về thư mục dự án.")
+    print("Vui lòng tải file GGUF của model về thư mục dự án.")
     exit()
 
-print(f"Đang tải model LLM (PhoGPT-Instruct) từ: {MODEL_PATH}...")
+print(f"Đang tải model LLM từ: {MODEL_PATH}...")
 llm = LlamaCpp(
     model_path=MODEL_PATH,
     n_gpu_layers=0,

@@ -92,3 +92,57 @@ docker run --rm -it --gpus all ^
     -v lawbot-db:/app/chroma_db ^
     lawbot-gpu
 ```
+
+## 5. Hướng dẫn chạy local (CPU)
+
+### `cd` vào folder dự án
+
+### 5.1: Cài đặt môi trường conda
+
+```
+conda create -n lawbot python=3.11
+```
+
+### 5.2: Cài đặt thư viện
+
+- Khởi động môi trường conda:
+
+```
+conda activate lawbot
+```
+
+- Cài thư viện `llama-cpp-python`:
+
+```
+conda install -c conda-forge llama-cpp-python
+```
+
+- Cài các thư viện còn lại:
+
+```
+pip install -r requirements.txt
+```
+
+### 5.3: Tải file `.gguf` của model qwen1_5-1.8b-chat-q8_0
+
+```
+pip install huggingface_hub
+```
+
+Sau khi cài xong thư viện huggingface_hub, chạy câu lệnh:
+
+```
+huggingface-cli download Qwen/Qwen1.5-1.8B-Chat-GGUF qwen1_5-1_8b-chat-q8_0.gguf --local-dir . --local-dir-use-symlinks False
+```
+
+### 5.4: Embedding data files
+
+```
+python ingest.py
+```
+
+### 5.5: Chạy chatbot
+
+```
+python app.py
+```
