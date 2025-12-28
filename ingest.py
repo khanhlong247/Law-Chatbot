@@ -1,3 +1,4 @@
+# ingest.py
 import os
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, DirectoryLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -14,81 +15,81 @@ EMBEDDING_MODEL_NAME = "intfloat/multilingual-e5-small"
 def main():
     print("Bắt đầu quá trình nạp dữ liệu...")
 
-    # --- Tải tài liệu ---
     documents = []
     def load_docs(glob_pattern, loader_cls, label):
         print(f"Đang tải file {label} từ '{DATA_PATH}'...")
-        loader = DirectoryLoader(
-            DATA_PATH,
-            glob=glob_pattern,
-            loader_cls=loader_cls,
-            use_multithreading=True,
-            show_progress=True
-        )
+        loader = DirectoryLoader(DATA_PATH, glob=glob_pattern, loader_cls=loader_cls, show_progress=True)
         try:
             return loader.load()
         except Exception as e:
-            print(f"Lỗi khi tải {label}: {e}")
+            print(f"Lỗi tải {label}: {e}")
             return []
 
     documents.extend(load_docs("**/*.pdf", PyPDFLoader, "PDF"))
     documents.extend(load_docs("**/*.docx", Docx2txtLoader, "DOCX"))
-    documents.extend(load_docs("**/*.doc", Docx2txtLoader, "DOC"))
 
     if not documents:
-        print(f"Không tìm thấy tài liệu nào trong thư mục '{DATA_PATH}'.")
-        print("Vui lòng kiểm tra lại đường dẫn và các file.")
+        print("Không có tài liệu.")
         return
 
-    print(f"Đã tải thành công {len(documents)} tài liệu.")
+    # --- CẢI TIẾN 1: XỬ LÝ SƠ BỘ VÀ GẮN TÊN FILE VÀO CONTENT ---
+    # Việc này giúp khi cắt nhỏ, Model vẫn biết đoạn đó thuộc luật nào
+    print("Đang tiền xử lý nội dung...")
+    for doc in documents:
+        # Lấy tên file làm ngữ cảnh (ví dụ: BLHS.docx -> BLHS)
+        source_file = os.path.basename(doc.metadata.get('source', ''))
+        doc.metadata['source_name'] = source_file # Lưu gọn để dùng sau này
+        
+        # Thêm tên luật vào đầu nội dung văn bản gốc để ngữ cảnh mạnh hơn
+        doc.page_content = f"Tài liệu: {source_file}\n{doc.page_content}"
 
-    print("Đang chia tài liệu thành các mảnh theo 'Điều'...")
-    
+    print("Đang chia tài liệu...")
     logical_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=2000,
-        chunk_overlap=200,
+        chunk_size=1024, # Giảm size xuống để Qwen 1.8B dễ tiêu hóa
+        chunk_overlap=150,
         separators=["\n\nĐiều ", "\nĐiều ", "Điều "],
         keep_separator=True
     )
     
-    chunks_with_preamble = logical_splitter.split_documents(documents)
+    chunks = logical_splitter.split_documents(documents)
     
     final_chunks = []
-    for chunk in chunks_with_preamble:
-        content = chunk.page_content.lstrip()
-        if content.startswith("Điều "):
-            chunk.page_content = content
-            final_chunks.append(chunk)
+    for chunk in chunks:
+        content = chunk.page_content
+        source_name = chunk.metadata.get('source_name', 'Tài liệu')
+        
+        # --- CẢI TIẾN 2: THÊM PREFIX CHO MODEL E5 ---
+        # Model E5 bắt buộc nội dung lưu vào DB phải có "passage: "
+        # Đồng thời nhắc lại tên file trong từng chunk nhỏ
+        new_content = f"passage: {content}" 
+        
+        # Cập nhật lại chunk
+        chunk.page_content = new_content
+        final_chunks.append(chunk)
 
-    if not final_chunks:
-         print("LỖI: Không tìm thấy 'Điều ' nào trong văn bản.")
-         print("Vui lòng kiểm tra lại file data hoặc cấu hình 'separators'.")
-         return
+    print(f"Số lượng chunks sau khi chia: {len(final_chunks)}")
 
-    print(f"Đã chia thành {len(final_chunks)} mảnh logic.")
-
-    print(f"Đang tải mô hình embedding '{EMBEDDING_MODEL_NAME}'...")
+    print(f"Đang tải model embedding '{EMBEDDING_MODEL_NAME}'...")
     embedding_model = HuggingFaceEmbeddings(
         model_name=EMBEDDING_MODEL_NAME,
         model_kwargs={'device': 'cpu'}
     )
 
-    print(f"Đang ghi dữ liệu vào ChromaDB (collection: {COLLECTION_NAME})...")
+    print(f"Ghi vào ChromaDB...")
+    # Lưu ý: Xóa DB cũ nếu muốn làm mới hoàn toàn
+    if os.path.exists(PERSIST_PATH):
+        import shutil
+        # shutil.rmtree(PERSIST_PATH) # Bỏ comment nếu muốn xóa DB cũ đi làm lại từ đầu
+        pass
 
-    try:
-        vectorstore = Chroma.from_documents(
-            documents=final_chunks,            
-            embedding=embedding_model,          
-            collection_name=COLLECTION_NAME,    
-            persist_directory=PERSIST_PATH    
-        )
-    except Exception as e:
-        print(f"Lỗi khi ghi vào ChromaDB: {e}")
-        return
+    vectorstore = Chroma.from_documents(
+        documents=final_chunks,            
+        embedding=embedding_model,          
+        collection_name=COLLECTION_NAME,    
+        persist_directory=PERSIST_PATH    
+    )
 
-    print("=" * 60)
-    print(f"Hoàn tất! Dữ liệu đã được lưu vào '{PERSIST_PATH}'")
-    print("=" * 60)
+    print("Hoàn tất!")
 
 if __name__ == "__main__":
     main()

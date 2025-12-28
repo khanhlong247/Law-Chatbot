@@ -1,60 +1,78 @@
+# app.py
 import os
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.llms import LlamaCpp
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import PromptTemplate
 
-os.environ["ANONYMIZED_TELEMETRY"] = "False"
+# ... (Phần check path giữ nguyên) ...
 
 MODEL_PATH = "./qwen1_5-1_8b-chat-q8_0.gguf" 
+EMBEDDING_MODEL = "intfloat/multilingual-e5-small"
+PERSIST_PATH = "./chroma_db"
+COLLECTION_NAME = "law_docs"
 
-if not os.path.exists(MODEL_PATH):
-    print(f"Không tìm thấy model tại: {MODEL_PATH}")
-    print("Vui lòng tải file GGUF của model về thư mục dự án.")
-    exit()
-
+# --- CẢI TIẾN 3: CẤU HÌNH LLM CHỐNG LẶP ---
 print(f"Đang tải model LLM từ: {MODEL_PATH}...")
 llm = LlamaCpp(
     model_path=MODEL_PATH,
     n_gpu_layers=0,
-    n_batch=512,
-    n_ctx=2048,
-    temperature=0.7,
+    n_ctx=4096, 
+    temperature=0.1,
+    top_p=0.9,
     verbose=False,
-    stop=["Dưới đây là", "Câu hỏi:", "\nTrả lời:"]
+    stop=["<|im_end|>", "Người dùng:", "Kết thúc câu trả lời"],
+    # Di chuyển repetition_penalty vào model_kwargs
+    model_kwargs={
+        "repetition_penalty": 1.2 
+    }
 )
-print("Tải LLM thành công!")
 
-EMBEDDING_MODEL = "intfloat/multilingual-e5-small"
-PERSIST_PATH = "./chroma_db"
-COLLECTION_NAME = "law_docs"
-DATA_PATH = "data" 
-
-print(f"Đang tải mô hình embedding '{EMBEDDING_MODEL}'...")
 embedding_model = HuggingFaceEmbeddings(
     model_name=EMBEDDING_MODEL,
     model_kwargs={"device": "cpu"}
 )
 
-print(f"Đang tải Vectorstore từ '{PERSIST_PATH}'...")
 vectorstore = Chroma(
     collection_name=COLLECTION_NAME,
     persist_directory=PERSIST_PATH,
     embedding_function=embedding_model
 )
 
+# --- CẢI TIẾN 4: PROMPT CHUẨN CHATML CHO QWEN ---
+# Format này giúp model phân biệt rõ đâu là context, đâu là câu hỏi
+template = """<|im_start|>system
+Bạn là trợ lý luật sư AI chuyên nghiệp. Nhiệm vụ của bạn là trả lời câu hỏi dựa trên CHÍNH XÁC các văn bản pháp luật được cung cấp dưới đây.
+Nếu thông tin không có trong văn bản, hãy nói "Tôi không tìm thấy thông tin trong tài liệu được cung cấp".
+Không được tự bịa ra điều luật.
+
+Văn bản pháp luật tham khảo:
+{context}
+<|im_end|>
+<|im_start|>user
+Câu hỏi: {question}
+<|im_end|>
+<|im_start|>assistant
+Trả lời:"""
+
+QA_CHAIN_PROMPT = PromptTemplate(input_variables=["context", "question"], template=template)
+
+# Hàm filter giữ nguyên (giả sử bạn đã code đúng logic)
+# ... (giữ nguyên hàm get_source_filter của bạn) ...
 def get_source_filter(query):
     query_lower = query.lower()
     target_files = set()
 
-    f_blds = os.path.join(DATA_PATH, "BLDS.docx")
-    f_blhs = os.path.join(DATA_PATH, "BLHS.docx")
-    f_bltths = os.path.join(DATA_PATH, "BLTTHS.docx")
-    f_lgtdb = os.path.join(DATA_PATH, "LGTDB.docx")
-    f_anm = os.path.join(DATA_PATH, "Luật-An-Ninh-Mạng.docx")
-    f_nd168 = os.path.join(DATA_PATH, "ND168.docx")
-    f_nd53 = os.path.join(DATA_PATH, "Nghị-định-53-ND-CP.docx")
+    # Định nghĩa đường dẫn file (đảm bảo đúng tên file trong folder data)
+    f_blds = "BLDS.docx" # Lưu ý: Chroma lưu tên file gốc, không cần đường dẫn đầy đủ 'data/...'
+    f_blhs = "BLHS.docx"
+    f_bltths = "BLTTHS.docx"
+    f_lgtdb = "LGTDB.docx"
+    f_anm = "Luật-An-Ninh-Mạng.docx"
+    f_nd168 = "ND168.docx"
+    f_nd53 = "Nghị-định-53-ND-CP.docx"
 
+    # --- Logic bắt từ khóa ---
     if ("an ninh mạng" in query_lower or "không gian mạng" in query_lower or
         "nghị định 53" in query_lower or "nd-53" in query_lower):
         target_files.add(f_anm)
@@ -76,63 +94,68 @@ def get_source_filter(query):
     if "dân sự" in query_lower or "blds" in query_lower:
         target_files.add(f_blds)
 
+    # --- SỬA LỖI Ở ĐÂY ---
     if not target_files:
-        print("Không phát hiện từ khóa, tìm kiếm toàn bộ 7 tài liệu...")
-        return {}
+        print("Không phát hiện từ khóa, tìm kiếm toàn bộ tài liệu...")
+        return None  # <--- QUAN TRỌNG: Phải trả về None, không được trả về {}
     
-    if len(target_files) == 1:
-        file_path = target_files.pop()
-        print(f"Tìm kiếm trong file: {file_path}")
-        return {"source": {"$eq": file_path}}
+    # Lấy tên file từ target_files để filter theo metadata 'source_name' 
+    # (Vì ở ingest.py bước trước ta đã lưu metadata['source_name'] = filename)
     
-    print(f"Tìm kiếm trong {len(target_files)} file: {target_files}")
-    return {"source": {"$in": list(target_files)}}
-
-prompt_template_str = """Dưới đây là một số điều luật trích từ văn bản pháp lý:
----
-{context}
----
-Dựa vào văn bản trên, hãy trả lời câu hỏi sau: {input}
-
-Trả lời:"""
-prompt = ChatPromptTemplate.from_template(prompt_template_str)
+    target_list = list(target_files)
+    
+    if len(target_list) == 1:
+        print(f"Giới hạn tìm kiếm trong file: {target_list[0]}")
+        return {"source_name": {"$eq": target_list[0]}} # Dùng source_name thay vì source
+    
+    print(f"Giới hạn tìm kiếm trong {len(target_list)} file: {target_list}")
+    return {"source_name": {"$in": target_list}}
 
 while True:
     query = input("\nCâu hỏi: ").strip()
-    if query.lower() in ["exit", "quit"]:
-        print("Tạm biệt!")
-        break
-    if not query:
+    if query.lower() in ["exit", "quit"]: break
+    if not query: continue
+
+    # --- CẢI TIẾN 5: THÊM PREFIX CHO QUERY ---
+    # Model E5 cần "query: " để tìm kiếm ngữ nghĩa
+    search_query = f"query: {query}" 
+    
+    metadata_filter = get_source_filter(query)
+    
+    print("Đang tìm kiếm...")
+    # Tăng k lên 4-5 để có nhiều ngữ cảnh hơn cho model chọn lọc
+    docs = vectorstore.similarity_search(
+        search_query, 
+        k=4, 
+        filter=metadata_filter
+    )
+    
+    # Xử lý context và trích xuất nguồn
+    context_text = ""
+    sources = set()
+    
+    for i, doc in enumerate(docs):
+        # Loại bỏ prefix "passage: " để Qwen đọc dễ hiểu hơn
+        clean_content = doc.page_content.replace("passage: ", "")
+        source_name = doc.metadata.get('source_name', 'Unknown')
+        sources.add(source_name)
+        
+        # Format lại context cho model dễ đọc
+        context_text += f"\n[Tài liệu {i+1} - Nguồn: {source_name}]:\n{clean_content}\n"
+
+    if not context_text:
+        print("Không tìm thấy tài liệu liên quan.")
         continue
 
-    try:
-        print("Đang tìm kiếm tài liệu...")
-        
-        metadata_filter = get_source_filter(query)
-
-        retriever = vectorstore.as_retriever(
-            search_kwargs={
-                "k": 3,
-                "filter": metadata_filter
-            }
-        )
-        
-        docs = retriever.invoke(query)
-        
-        context = "\n\n---\n\n".join([d.page_content for d in docs])
-        
-        if not context:
-            context = "Không tìm thấy tài liệu liên quan."
-            
-        formatted_prompt = prompt.format(context=context, input=query)
-        
-        print("Đang suy nghĩ...")
-        answer = llm.invoke(formatted_prompt)
-        
-        print("\nTrả lời:\n")
-        print(answer) 
-        print("-" * 80)
-
-    except Exception as e:
-        print(f"Lỗi khi thực thi RAG chain: {e}")
-        continue
+    formatted_prompt = QA_CHAIN_PROMPT.format(context=context_text, question=query)
+    
+    print("AI đang suy nghĩ...")
+    answer = llm.invoke(formatted_prompt)
+    
+    print("\n" + "="*40)
+    print("TRẢ LỜI:")
+    print(answer.strip())
+    print("-" * 40)
+    # --- CẢI TIẾN 6: GHI NGUỒN TỪ CODE (CHÍNH XÁC HƠN LLM) ---
+    print("Nguồn tài liệu tham khảo:", ", ".join(sources))
+    print("="*40)
