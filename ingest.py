@@ -45,8 +45,8 @@ def main():
 
     print("Đang chia tài liệu...")
     logical_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1024, # Giảm size xuống để Qwen 1.8B dễ tiêu hóa
-        chunk_overlap=150,
+        chunk_size=3000,
+        chunk_overlap=200,
         separators=["\n\nĐiều ", "\nĐiều ", "Điều "],
         keep_separator=True
     )
@@ -72,7 +72,7 @@ def main():
     print(f"Đang tải model embedding '{EMBEDDING_MODEL_NAME}'...")
     embedding_model = HuggingFaceEmbeddings(
         model_name=EMBEDDING_MODEL_NAME,
-        model_kwargs={'device': 'cpu'}
+        model_kwargs={'device': 'cuda'}
     )
 
     print(f"Ghi vào ChromaDB...")
