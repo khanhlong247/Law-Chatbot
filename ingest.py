@@ -32,13 +32,13 @@ def main():
         print("Không có tài liệu.")
         return
 
-    # --- CẢI TIẾN 1: XỬ LÝ SƠ BỘ VÀ GẮN TÊN FILE VÀO CONTENT ---
+    # --- XỬ LÝ SƠ BỘ VÀ GẮN TÊN FILE VÀO CONTENT ---
     # Việc này giúp khi cắt nhỏ, Model vẫn biết đoạn đó thuộc luật nào
     print("Đang tiền xử lý nội dung...")
     for doc in documents:
         # Lấy tên file làm ngữ cảnh (ví dụ: BLHS.docx -> BLHS)
         source_file = os.path.basename(doc.metadata.get('source', ''))
-        doc.metadata['source_name'] = source_file # Lưu gọn để dùng sau này
+        doc.metadata['source_name'] = source_file
         
         # Thêm tên luật vào đầu nội dung văn bản gốc để ngữ cảnh mạnh hơn
         doc.page_content = f"Tài liệu: {source_file}\n{doc.page_content}"
@@ -58,7 +58,7 @@ def main():
         content = chunk.page_content
         source_name = chunk.metadata.get('source_name', 'Tài liệu')
         
-        # --- CẢI TIẾN 2: THÊM PREFIX CHO MODEL E5 ---
+        # --- THÊM PREFIX CHO MODEL E5 ---
         # Model E5 bắt buộc nội dung lưu vào DB phải có "passage: "
         # Đồng thời nhắc lại tên file trong từng chunk nhỏ
         new_content = f"passage: {content}" 
@@ -76,7 +76,6 @@ def main():
     )
 
     print(f"Ghi vào ChromaDB...")
-    # Lưu ý: Xóa DB cũ nếu muốn làm mới hoàn toàn
     if os.path.exists(PERSIST_PATH):
         import shutil
         # shutil.rmtree(PERSIST_PATH) # Bỏ comment nếu muốn xóa DB cũ đi làm lại từ đầu

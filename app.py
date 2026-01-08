@@ -5,12 +5,12 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.llms import LlamaCpp
 from langchain_core.prompts import PromptTemplate
 from langchain_core.callbacks import StreamingStdOutCallbackHandler
-from sentence_transformers import CrossEncoder # <--- VŨ KHÍ BÍ MẬT
+from sentence_transformers import CrossEncoder
 
 # --- CẤU HÌNH ---
 MODEL_PATH = "./qwen2.5-3b-instruct-q5_k_m.gguf" 
 EMBEDDING_MODEL = "intfloat/multilingual-e5-small"
-# Model Re-ranking (Nhỏ nhưng có võ, chạy tốt trên CPU)
+# Model Re-ranking
 RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2" 
 PERSIST_PATH = "./chroma_db"
 COLLECTION_NAME = "law_docs"
@@ -22,12 +22,12 @@ def clean_text(text):
     text = re.sub(r'\s+', ' ', text) 
     return text.strip()
 
-# --- HÀM LỌC NGUỒN (Giữ nguyên) ---
+# --- HÀM LỌC NGUỒN ---
 def get_source_filter(query):
     query_lower = query.lower()
     target_files = set()
 
-    # 1. Định nghĩa file (Giả định biến global hoặc truyền vào)
+    # 1. Định nghĩa file
     # Lưu ý: Tên file phải khớp chính xác với metadata 'source_name' trong ChromaDB
     f_blds = "BLDS.docx"
     f_blhs = "BLHS.docx"
