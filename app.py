@@ -194,7 +194,7 @@ def advanced_retrieval(query, metadata_filter, top_k_final=3):
     print("\n--- KẾT QUẢ RE-RANKING ---")
     for doc, score in scored_docs[:top_k_final]:
         if score > -4.0: 
-            # --- QUAN TRỌNG: Lưu điểm vào metadata để main() in ra được ---
+            # --- Lưu điểm vào metadata để main() in ra được ---
             doc.metadata['score'] = float(score) 
             final_docs.append(doc)
             
@@ -224,7 +224,7 @@ def main():
                 clean_content = clean_text(doc.page_content)
                 source = doc.metadata.get('source_name', 'Unknown')
                 
-                # --- CẢI TIẾN: Dùng thẻ XML để cô lập dữ liệu ---
+                # --- Dùng thẻ XML để cô lập dữ liệu ---
                 context_chunk = (
                     f'<doc id="{i+1}" source="{source}">\n'
                     f'{clean_content}\n'
