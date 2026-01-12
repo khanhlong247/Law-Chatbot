@@ -111,6 +111,37 @@ def get_source_filter(query):
     else:
         return {"source_name": {"$in": target_list}}
 
+def enhance_legal_query(query):
+    query_lower = query.lower()
+    additional_terms = []
+
+    mappings = [
+        # Thêm "Bộ luật hình sự" vào cuối mỗi mapping để Force Filter hoạt động
+        (["tự vệ", "đánh nó", "vào nhà"], "Phòng vệ chính đáng Điều 22 Bộ luật hình sự"),
+        (["không báo công an", "im lặng", "biết", "giết người"], "Tội không tố giác tội phạm Điều 19 Điều 390 Bộ luật hình sự"),
+        (["say rượu", "say bia", "lỡ tay"], "Phạm tội trong tình trạng say do dùng rượu bia Điều 13 Bộ luật hình sự"),
+        (["14 tuổi", "15 tuổi", "16 tuổi", "trẻ em", "nhỏ tuổi", "nghịch dại"], "Tuổi chịu trách nhiệm hình sự Điều 12 Bộ luật hình sự"),
+        (["đánh bài", "vui vui", "mấy chục ngàn"], "Tội đánh bạc Điều 321 Bộ luật hình sự"),
+        (["cho mượn xe", "vạ lây", "đồng phạm"], "Đồng phạm Điều 17 Bộ luật hình sự"),
+        (["mua", "iphone cũ", "đồ ăn trộm", "tiêu thụ"], "Tội tiêu thụ tài sản do người khác phạm tội mà có Điều 323 Bộ luật hình sự"),
+        (["lãi suất cao", "nặng lãi", "cho vay"], "Tội cho vay lãi nặng Điều 201 Bộ luật hình sự")
+    ]
+
+    for keywords, legal_term in mappings:
+        match_count = sum(1 for k in keywords if k in query_lower)
+        if match_count >= 1:
+             if legal_term not in additional_terms:
+                additional_terms.append(legal_term)
+
+    if additional_terms:
+        # Đưa thuật ngữ luật lên đầu để E5 chú ý hơn
+        enhanced_query = f"{', '.join(additional_terms)}. Nội dung câu hỏi: {query}"
+        print(f"\n[DEBUG] Query gốc: {query}")
+        print(f"[DEBUG] Query mở rộng: {enhanced_query}")
+        return enhanced_query
+    
+    return query
+
 # --- KHỞI TẠO ---
 print(f"Đang tải model LLM từ: {MODEL_PATH}...")
 callbacks = [StreamingStdOutCallbackHandler()]
@@ -170,75 +201,85 @@ Câu trả lời:"""
 QA_CHAIN_PROMPT = PromptTemplate(input_variables=["context", "question"], template=template)
 
 # --- LOGIC TÌM KIẾM NÂNG CAO (HYBRID-LIKE) ---
-def advanced_retrieval(query, metadata_filter, top_k_final=3):
-    # BƯỚC 1: Lấy rộng
+def advanced_retrieval(original_query, enhanced_query, metadata_filter, top_k_final=3):
     print("-> 1. Tìm kiếm Vector (Lấy top 15)...")
-    search_query = f"query: {query}"
+    
+    # Dùng enhanced_query để tìm kiếm Vector
+    search_query = f"query: {enhanced_query}" 
     initial_docs = vectorstore.similarity_search(search_query, k=15, filter=metadata_filter)
     
     if not initial_docs:
         return []
 
-    # BƯỚC 2: Re-ranking
     print("-> 2. Re-ranking (AI chấm điểm độ liên quan)...")
     doc_contents = [clean_text(d.page_content) for d in initial_docs]
-    pairs = [[query, content] for content in doc_contents]
+    
+    # --- SỬA ĐỔI QUAN TRỌNG TẠI ĐÂY ---
+    # Thay vì so sánh với original_query (vốn nhiều từ lóng),
+    # ta so sánh với enhanced_query (chứa thuật ngữ luật) để Re-ranker chấm điểm chuẩn hơn.
+    pairs = [[enhanced_query, content] for content in doc_contents]
     
     scores = reranker.predict(pairs)
     
-    # Ghép điểm vào và sắp xếp
     scored_docs = sorted(zip(initial_docs, scores), key=lambda x: x[1], reverse=True)
     
-    # BƯỚC 3: Lọc và LƯU ĐIỂM VÀO METADATA
     final_docs = []
     print("\n--- KẾT QUẢ RE-RANKING ---")
     for doc, score in scored_docs[:top_k_final]:
-        if score > -4.0: 
-            # --- Lưu điểm vào metadata để main() in ra được ---
+        # Giảm ngưỡng lọc xuống chút (-5.0) để tránh bỏ sót nếu model chấm hơi gắt
+        if score > -5.0: 
             doc.metadata['score'] = float(score) 
             final_docs.append(doc)
-            
             source_name = doc.metadata.get('source_name', 'Unknown')
-            # In thử 60 ký tự đầu
             print(f"[Score: {score:.2f}] {source_name}: {clean_text(doc.page_content)[:60]}...")
             
     return final_docs
 
 def main():
-    print("\n=== LAWCHATTER ADVANCED (Rerank Enabled) ===")
+    print("\n=== LAWCHATTER ADVANCED (Logic Fixed) ===")
     while True:
         try:
             query = input("\nCâu hỏi: ").strip()
             if query.lower() in ["exit", "quit"]: break
             if not query: continue
 
-            metadata_filter = get_source_filter(query)
+            # --- SỬA ĐỔI 1: Mở rộng truy vấn NGAY TỪ ĐẦU ---
+            # Để các từ khóa như "Bộ luật hình sự", "Điều 321" được thêm vào
+            enhanced_query = enhance_legal_query(query)
+
+            # --- SỬA ĐỔI 2: Lọc nguồn dựa trên câu hỏi ĐÃ MỞ RỘNG ---
+            # Ví dụ: Câu hỏi gốc chỉ có "xe máy" (Giao thông), 
+            # nhưng enhanced_query có thêm "Bộ luật hình sự" -> Lấy cả 2 nguồn.
+            metadata_filter = get_source_filter(enhanced_query) 
             
-            # Sử dụng hàm tìm kiếm nâng cao
-            docs = advanced_retrieval(query, metadata_filter)
+            # 3. Tìm kiếm nâng cao
+            docs = advanced_retrieval(query, enhanced_query, metadata_filter)
             
             print("\n--- TÀI LIỆU ĐƯA VÀO (XML FORMAT) ---")
-            context_text = "<documents>\n" # Mở thẻ bao quanh
+            context_text = "<documents>\n"
             
-            for i, doc in enumerate(docs):
+            # --- SỬA ĐỔI 3: Chỉ lấy Top 2 văn bản tốt nhất để tránh nhiễu ---
+            for i, doc in enumerate(docs[:2]): 
                 clean_content = clean_text(doc.page_content)
                 source = doc.metadata.get('source_name', 'Unknown')
+                score = doc.metadata.get('score', 0)
                 
-                # --- Dùng thẻ XML để cô lập dữ liệu ---
                 context_chunk = (
-                    f'<doc id="{i+1}" source="{source}">\n'
+                    f'<doc id="{i+1}" source="{source}" score="{score:.2f}">\n'
                     f'{clean_content}\n'
                     f'</doc>\n'
                 )
                 context_text += context_chunk
-                
-                # In ra debug gọn hơn
-                print(f"[{i+1}] {source} (Score: {doc.metadata.get('score', 'N/A')})")
-
+                print(f"[{i+1}] {source} (Score: {score:.2f})")
             context_text += "</documents>"
+
+            if not docs:
+                print(">>> Không tìm thấy tài liệu phù hợp.")
+                continue
 
             print("-" * 50)
             print("AI ĐANG SUY NGHĨ...")
+            # Vẫn dùng query gốc để prompt tự nhiên, nhưng context đã chính xác
             formatted_prompt = QA_CHAIN_PROMPT.format(context=context_text, question=query)
             llm.invoke(formatted_prompt)
             print("\n" + "-" * 50)
