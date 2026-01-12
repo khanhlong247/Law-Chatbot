@@ -45,10 +45,18 @@ def main():
 
     print("Đang chia tài liệu...")
     logical_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=3000,
-        chunk_overlap=200,
-        separators=["\n\nĐiều ", "\nĐiều ", "Điều "],
-        keep_separator=True
+        chunk_size=1024,   # Giảm xuống mức an toàn của E5-small (512 token ~ 1200 char)
+        chunk_overlap=150, # Overlap vừa đủ để giữ ngữ cảnh liền mạch
+        
+        # QUAN TRỌNG: Ưu tiên cắt ngay tại chữ "Điều" để tách riêng các điều luật
+        separators=[
+            "\n\nĐiều ",  # Ưu tiên 1: Cắt khi thấy xuống dòng 2 lần + Điều
+            "\nĐiều ",    # Ưu tiên 2: Cắt khi thấy xuống dòng 1 lần + Điều
+            "Điều ",      # Ưu tiên 3: Cắt ngay chữ Điều
+            "\n\n",       # Sau đó mới đến đoạn văn
+            ". ",         # Cuối cùng là câu
+        ],
+        keep_separator=True # Giữ lại chữ "Điều" ở đầu chunk mới
     )
     
     chunks = logical_splitter.split_documents(documents)
